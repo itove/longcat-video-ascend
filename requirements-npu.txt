@@ -1,0 +1,27 @@
+# LongCat-Video Ascend NPU Requirements
+# Install after setting up CANN and torch_npu environment
+
+# Base dependencies (same as original)
+numpy==1.26.4
+transformers==4.41.0
+loguru==0.7.2
+diffusers==0.35.1
+einops==0.8.0
+ftfy==6.2.0
+psutil==6.0.0
+av==12.0.0
+opencv-python==4.9.0.80
+streamlit==1.50.0
+pyarrow==20.0.0
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+
+# NPU-specific PyTorch (install matching your CANN version)
+# Example for CANN 8.0 / torch 2.5.1:
+# torch==2.5.1
+# torch-npu==2.5.1
+# torchvision
+# torchaudio
+
+# Note: flash-attn is intentionally omitted for NPU builds.
+# The code will automatically fallback to standard PyTorch attention.

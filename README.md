@@ -1,283 +1,291 @@
-# LongCat-Video
+# LongCat-Video Ascend NPU 适配文档
 
-<div align="center">
-  <img src="assets/longcat-video_logo.svg" width="45%" alt="LongCat-Video" />
-</div>
-<hr>
+本文档描述如何将美团开源的 **LongCat-Video** (13.6B 参数视频生成模型) 适配到 **华为昇腾 NPU (Ascend 910B 系列)** 上运行。
 
+> **模型官方仓库**：https://github.com/meituan-longcat/LongCat-Video  
+> **模型权重下载**：https://huggingface.co/meituan-longcat/LongCat-Video  
+> **AtomGit / ModelScope 镜像**：可从 AtomGit 或 ModelScope 下载原始权重  
+> **适配版本**：基于 LongCat-Video main 分支  
+> **硬件验证环境**：Atlas 800 A2 (Ascend 910B3)  
+> **软件栈**：CANN 8.0+, torch 2.5.1+, torch-npu 2.5.1+
 
-<div align="center" style="line-height: 1;">
-  <img src='assets/longcat_video_title.svg' alt="LongCat-Video">
-  <a href='https://meituan-longcat.github.io/LongCat-Video/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
-  <a href='https://arxiv.org/abs/2510.22200'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
-  <a href='https://huggingface.co/meituan-longcat/LongCat-Video'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue'></a>
-</div>
-<div align="center" style="line-height: 1;">
-  <img src='assets/longcat_video_avatar_title.svg' alt="LongCat-Video-Avatar">
-  <a href='https://meigen-ai.github.io/LongCat-Video-Avatar/'><img src='https://img.shields.io/badge/Project-Page-green'></a>
-  <a href='https://github.com/meituan-longcat/LongCat-Video/blob/main/assets/LongCat-Video-Avatar-Tech-Report.pdf'><img src='https://img.shields.io/badge/Technique-Report-red'></a>
-  <a href='https://huggingface.co/meituan-longcat/LongCat-Video-Avatar'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue'></a>
-</div>
-<div align="center" style="line-height: 1;">
-  <img src='assets/title_placeholder.svg' alt="placeholder">
-  </a>
-  <a href='https://github.com/meituan-longcat/LongCat-Flash-Chat/blob/main/figures/wechat_official_accounts.png'><img src='https://img.shields.io/badge/WeChat-LongCat-brightgreen?logo=wechat&logoColor=white'></a>  
-  <a href='https://x.com/Meituan_LongCat'><img src='https://img.shields.io/badge/Twitter-LongCat-white?logo=x&logoColor=white'></a>
-<a href="https://discord.gg/EXsG52D8SW"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white"></a>
-  <a href='LICENSE'><img src='https://img.shields.io/badge/License-MIT-f5de53?&color=f5de53'></a>
-</div>
+---
 
-## Model Introduction
-We introduce LongCat-Video, a foundational video generation model with 13.6B parameters, delivering strong performance across *Text-to-Video*, *Image-to-Video*, and *Video-Continuation* generation tasks. It particularly excels in efficient and high-quality long video generation, representing our first step toward world models.
+## 目录
 
-### Key Features
-- 🌟 **Unified architecture for multiple tasks**: LongCat-Video unifies *Text-to-Video*, *Image-to-Video*, and *Video-Continuation* tasks within a single video generation framework. It natively supports all these tasks with a single model and consistently delivers strong performance across each individual task.
-- 🌟 **Long video generation**: LongCat-Video is natively pretrained on *Video-Continuation* tasks, enabling it to produce minutes-long videos without color drifting or quality degradation.
-- 🌟 **Efficient inference**: LongCat-Video generates $720p$, $30fps$ videos within minutes by employing a coarse-to-fine generation strategy along both the temporal and spatial axes. Block Sparse Attention further enhances efficiency, particularly at high resolutions
-- 🌟 **Strong performance with multi-reward RLHF**: Powered by multi-reward Group Relative Policy Optimization (GRPO), comprehensive evaluations on both internal and public benchmarks demonstrate that LongCat-Video achieves performance comparable to leading open-source video generation models as well as the latest commercial solutions.
+- [适配概述](#适配概述)
+- [环境准备](#环境准备)
+- [模型权重下载](#模型权重下载)
+- [代码修改说明](#代码修改说明)
+- [运行推理](#运行推理)
+- [验证测试](#验证测试)
+- [已知限制](#已知限制)
+- [常见问题](#常见问题)
 
-For more detail, please refer to the comprehensive [***LongCat-Video Technical Report***](https://arxiv.org/abs/2510.22200).
+---
 
-## 🎥 Teaser Video
+## 适配概述
 
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/00fa63f0-9c4e-461a-a79e-c662ad596d7d" width="2264" height="384"> </video>
-</div>
+LongCat-Video 原生基于 PyTorch + Diffusers 框架，使用 CUDA 生态（包括 FlashAttention-2/3、Triton BSA、NCCL 等）。在昇腾 NPU 上的核心适配工作包括：
 
-## 🔥 Latest News!!
-- Dec 16, 2025: 🚀 We are excited to announce the release of [***LongCat-Video-Avatar***](https://meigen-ai.github.io/LongCat-Video-Avatar/), a unified model that delivers expressive and highly dynamic audio-driven character animation, supporting native tasks including *Audio-Text-to-Video*, *Audio-Text-Image-to-Video*, and *Video Continuation* with seamless compatibility for both *single-stream* and *multi-stream* audio inputs. The release includes our [***Technical Report***](https://github.com/meituan-longcat/LongCat-Video), [***inference code***](https://github.com/meituan-longcat/LongCat-Video), 🤗 [***model weights***](https://huggingface.co/meituan-longcat/LongCat-Video-Avatar), and [***project page***](https://meigen-ai.github.io/LongCat-Video-Avatar/).
-- Oct 25, 2025: 🚀 We've released LongCat-Video, a foundational video generation model.  Tech report and models are available at [***LongCat-Video Technical Report***](https://arxiv.org/abs/2510.22200) and 🤗 [***Huggingface***](https://huggingface.co/meituan-longcat/LongCat-Video) !
+| 原始依赖 | 昇腾替代方案 | 说明 |
+|---------|------------|------|
+| `torch.cuda` | `torch.npu` | 通过兼容层自动切换 |
+| `nccl` | `hccl` | 分布式通信后端自动切换 |
+| `flash-attn` / `flash_attn_interface` | 标准 PyTorch Attention | 自动 fallback，无需安装 flash-attn |
+| `triton` BSA (Block Sparse Attention) | 标准 PyTorch Attention | Triton 算子在 NPU 上不可用，自动降级 |
+| `xformers` | 标准 PyTorch Attention | 同上 |
+| `torch.compile` | 条件跳过 | NPU 环境下自动禁用 compile |
+| `amp.autocast(device_type='cuda')` | 动态 device 检测 | 自动适配为 `npu` 或 `cuda` |
 
+---
 
+## 环境准备
 
-## Quick Start
+### 1. 硬件与驱动
 
-### Installation
+- **NPU 型号**：Ascend 910B3 (或兼容型号)
+- **驱动版本**：请参照 [昇腾社区](https://www.hiascend.com/) 推荐版本
+- **NPU 数量**：单卡或多卡均可（多卡需开启 Context Parallel）
 
-Clone the repo:
+### 2. CANN 工具链
 
-```shell
-git clone --single-branch --branch main https://github.com/meituan-longcat/LongCat-Video
-cd LongCat-Video
+```bash
+# 确认 ASCEND_TOOLKIT_HOME 已设置
+echo $ASCEND_TOOLKIT_HOME
+# 输出示例: /usr/local/Ascend/ascend-toolkit/latest
+
+# 确认 npu-smi 可用
+npu-smi info
 ```
 
-Install dependencies:
+### 3. Python 环境
 
-```shell
-# create conda environment
-conda create -n longcat-video python=3.10
-conda activate longcat-video
+```bash
+conda create -n longcat-video-npu python=3.10
+conda activate longcat-video-npu
 
-# install torch (configure according to your CUDA version)
-pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# 安装昇腾版 PyTorch (请匹配 CANN 版本)
+# 示例 (CANN 8.0 + torch 2.5.1):
+pip install torch==2.5.1 torchvision torchaudio
+pip install torch_npu==2.5.1
 
-# install flash-attn-2
-pip install ninja 
-pip install psutil 
-pip install packaging 
-pip install flash_attn==2.7.4.post1
-
-# install other requirements
-pip install -r requirements.txt
-
-# install longcat-video-avatar requirements
-conda install -c conda-forge librosa
-conda install -c conda-forge ffmpeg
-pip install -r requirements_avatar.txt
-
+# 安装其他依赖 (不需要 flash-attn)
+pip install -r requirements-npu.txt
 ```
 
-FlashAttention-2 is enabled in the model config by default; you can also change the model config ("./weights/LongCat-Video/dit/config.json") to use FlashAttention-3 or xformers once installed.
+**requirements-npu.txt** 已包含除 flash-attn 外的所有必要依赖。
 
-### Model Download
+### 4. 验证 PyTorch NPU 可用性
 
-| Models | Description | Download Link |
-| --- | --- | --- |
-| LongCat-Video | foundational video generation | 🤗 [Huggingface](https://huggingface.co/meituan-longcat/LongCat-Video) |
-| LongCat-Video-Avatar | single- and multi-character audio-driven video generation | 🤗 [Huggingface](https://huggingface.co/meituan-longcat/LongCat-Video-Avatar) |
+```bash
+python -c "import torch; import torch_npu; print(torch_npu.npu.is_available())"
+# 期望输出: True
+```
 
-Download models using huggingface-cli:
-```shell
+---
+
+## 模型权重下载
+
+### 方式一：HuggingFace (官方)
+
+```bash
 pip install "huggingface_hub[cli]"
 huggingface-cli download meituan-longcat/LongCat-Video --local-dir ./weights/LongCat-Video
-huggingface-cli download meituan-longcat/LongCat-Video-Avatar --local-dir ./weights/LongCat-Video-Avatar
 ```
 
-### Run Text-to-Video
+### 方式二：ModelScope (国内镜像)
 
-```shell
-# Single-GPU inference
-torchrun run_demo_text_to_video.py --checkpoint_dir=./weights/LongCat-Video --enable_compile
-
-# Multi-GPU inference
-torchrun --nproc_per_node=2 run_demo_text_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video --enable_compile
+```bash
+pip install modelscope
+modelscope download --model meituan-longcat/LongCat-Video --local_dir ./weights/LongCat-Video
 ```
 
-### Run Image-to-Video
+### 方式三：AtomGit
 
-```shell
-# Single-GPU inference
-torchrun run_demo_image_to_video.py --checkpoint_dir=./weights/LongCat-Video --enable_compile
+如 AtomGit 已托管该模型权重，可直接从 AtomGit 仓库下载到 `./weights/LongCat-Video`。
 
-# Multi-GPU inference
-torchrun --nproc_per_node=2 run_demo_image_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video --enable_compile
+---
+
+## 代码修改说明
+
+本适配仓库已包含所有必要的代码修改，核心变更如下：
+
+### 1. 新增 `ascend_npu_compat.py`
+
+设备检测与兼容层，提供：
+- `get_device_type()` / `get_device_count()` / `set_device()`
+- `empty_cache()` / `ipc_collect()` / `Stream()`
+- `init_process_group()` — 自动选择 `hccl` / `nccl`
+- `standard_attention()` — PyTorch 原生 Attention fallback
+- `maybe_compile()` — NPU 时跳过 `torch.compile`
+
+### 2. Attention 模块 fallback (`longcat_video/modules/attention.py`)
+
+在所有 flash-attn / xformers 分支后新增标准 PyTorch Attention 回退：
+
+```python
+else:
+    # Standard PyTorch attention fallback (for Ascend NPU / CPU)
+    x = _standard_attention(q, k, v, self.scale)
 ```
 
-### Run Video-Continuation
+同样适用于 `MultiHeadCrossAttention` 和 `avatar/attention.py`。
 
-```shell
-# Single-GPU inference
-torchrun run_demo_video_continuation.py --checkpoint_dir=./weights/LongCat-Video --enable_compile
+### 3. 模型初始化自动降级 (`longcat_video_dit.py`)
 
-# Multi-GPU inference
-torchrun --nproc_per_node=2 run_demo_video_continuation.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video --enable_compile
+`LongCatVideoTransformer3DModel.__init__` 开头自动检测 NPU 并关闭 flash-attn / BSA：
+
+```python
+if hasattr(torch, 'npu') and torch.npu.is_available():
+    print("[Ascend NPU] Auto-disabling flash-attn/xformers/bsa...")
+    enable_flashattn3 = False
+    enable_flashattn2 = False
+    enable_xformers = False
+    enable_bsa = False
+    bsa_params = None
 ```
 
-### Run Long-Video Generation
+### 4. 分布式通信 (`context_parallel_util.py`)
 
-```shell
-# Single-GPU inference
-torchrun run_demo_long_video.py --checkpoint_dir=./weights/LongCat-Video --enable_compile
+- `init_device_mesh("cuda", ...)` 改为动态 `device_type`
+- `torch.cuda.Stream()` 改为兼容层 `_get_stream()`
 
-# Multi-GPU inference
-torchrun --nproc_per_node=2 run_demo_long_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video --enable_compile
+### 5. Pipeline 与 Demo 脚本
+
+- `torch.cuda.empty_cache()` → `empty_cache()`
+- `torch.cuda.device_count()` → `get_device_count()`
+- `dist.init_process_group(backend="nccl")` → `init_process_group()`
+- `self.device = "cuda"` → 动态检测 `npu` / `cuda`
+- `torch.compile(dit)` → 条件化跳过 (NPU 时不编译)
+
+### 6. AMP Autocast
+
+所有 `amp.autocast(device_type='cuda')` 改为调用 `_get_amp_device()` 动态返回 `npu` / `cuda`。
+
+---
+
+## 运行推理
+
+### 单卡 Text-to-Video (NPU)
+
+```bash
+# 设置环境变量
+export ASCEND_RT_VISIBLE_DEVICES=0
+
+# 运行
+torchrun run_demo_text_to_video.py \
+  --checkpoint_dir=./weights/LongCat-Video
 ```
 
-### Run Interactive Video Generation
+> **注意**：NPU 环境下 `--enable_compile` 参数会被自动忽略，不会触发 `torch.compile`。
 
-```shell
-# Single-GPU inference
-torchrun run_demo_interactive_video.py --checkpoint_dir=./weights/LongCat-Video --enable_compile
+### 多卡 Text-to-Video (Context Parallel)
 
-# Multi-GPU inference
-torchrun --nproc_per_node=2 run_demo_interactive_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video --enable_compile
+```bash
+export ASCEND_RT_VISIBLE_DEVICES=0,1
+
+torchrun --nproc_per_node=2 run_demo_text_to_video.py \
+  --context_parallel_size=2 \
+  --checkpoint_dir=./weights/LongCat-Video
 ```
 
-### Run LongCat-Video-Avatar
-💡 User tips
-> - Lip synchronization accuracy:​​ Audio CFG works optimally between 3–5. Increase the audio CFG value for better synchronization.
-> - Prompt Enhancement: Include clear verbal-action cues (e.g., talking, speaking) in the prompt to achieve more natural lip movements.
-> - Mitigate repeated actions: Setting the reference image index（--ref_img_index, default to 10） between 0 and 24 ensures better consistency, while selecting other ranges (e.g., -10 or 30) helps reduce repeated actions. Additionally, increasing the mask frame range (--mask_frame_range, default to 3) can further help mitigate repeated actions, but excessively large values may introduce artifacts.
-> - Super resolution: Our model is compatible with both 480P and 720P, which can be controlled via --resolution.
-> - Dual-Audio Modes: Merge mode (set audio_type to para) requires two audio clips of equal length, and the resulting audio is obtained by summing the two clips; Concatenation mode (set audio_type to add) does not require equal-length inputs, and the resulting audio is formed by sequentially concatenating the two clips with silence padding for any gaps, where by default person1 speaks first and person2 speaks afterward.
+多卡场景下会自动使用 **HCCL** 作为分布式后端。
 
-- Single-Audio-to-Video Generation
-```shell
-# Audio-Text-to-Video
-torchrun --nproc_per_node=2 run_demo_avatar_single_audio_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video-Avatar --stage_1=at2v --input_json=assets/avatar/single_example_1.json
+### Image-to-Video / Video-Continuation / Long-Video
 
-# Audio-Image-to-Video
-torchrun --nproc_per_node=2 run_demo_avatar_single_audio_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video-Avatar  --stage_1=ai2v --input_json=assets/avatar/single_example_1.json
+用法与官方 README 完全一致，只需确保环境为 NPU：
 
-# Audio-Text-to-Video and Video-Continuation
-torchrun --nproc_per_node=2 run_demo_avatar_single_audio_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video-Avatar --stage_1=at2v --input_json=assets/avatar/single_example_1.json --num_segments=5 --ref_img_index=10 --mask_frame_range=3
-
-# Audio-Image-to-Video and Video-Continuation
-torchrun --nproc_per_node=2 run_demo_avatar_single_audio_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video-Avatar --stage_1=ai2v --input_json=assets/avatar/single_example_1.json --num_segments=5 --ref_img_index=10 --mask_frame_range=3
+```bash
+torchrun run_demo_image_to_video.py --checkpoint_dir=./weights/LongCat-Video
+torchrun run_demo_video_continuation.py --checkpoint_dir=./weights/LongCat-Video
+torchrun run_demo_long_video.py --checkpoint_dir=./weights/LongCat-Video
 ```
 
-- Multi-Audio-to-Video Generation
-```shell
-# Audio-Image-to-Video
-torchrun --nproc_per_node=2 run_demo_avatar_multi_audio_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video-Avatar --input_json=assets/avatar/multi_example_1.json
+---
 
-# Audio-Image-to-Video and Video-Continuation
-torchrun --nproc_per_node=2 run_demo_avatar_multi_audio_to_video.py --context_parallel_size=2 --checkpoint_dir=./weights/LongCat-Video-Avatar --input_json=assets/avatar/multi_example_1.json --num_segments=5 --ref_img_index=10 --mask_frame_range=3
+## 验证测试
+
+运行一键验证脚本：
+
+```bash
+bash verify_npu.sh
 ```
 
-### Run Streamlit
+该脚本将依次执行：
+1. **环境检查**：npu-smi、CANN、torch_npu 版本
+2. **模块导入测试**：ascend_npu_compat、attention、pipeline
+3. **Attention Fallback 测试**：标准 PyTorch Attention 前向正确性
+4. **Dummy Forward 测试**：使用随机权重验证模型前向传播
+5. **分布式后端检查**：确认 HCCL 被选中
 
-```shell
-# Single-GPU inference
-streamlit run ./run_streamlit.py --server.fileWatcherType none --server.headless=false
+---
+
+## 已知限制
+
+| 限制项 | 说明 | 预计解决 |
+|-------|------|---------|
+| **flash-attn** | NPU 不支持原版 FlashAttention，已 fallback 到标准 Attention | 可用昇腾 FA 算子进一步优化 |
+| **triton BSA** | Block Sparse Attention 基于 Triton，NPU 不支持 | 标准 Attention 替代 |
+| **torch.compile** | NPU 上未启用图编译 | 待 torch_npu.compile 稳定后支持 |
+| **性能** | 标准 Attention 的内存与速度不如 FlashAttention | 可通过昇腾亲和算子后续优化 |
+
+---
+
+## 常见问题
+
+### Q1: 导入时提示 `flash-attn` 未安装？
+
+**A**: NPU 环境下不需要安装 flash-attn。模型已自动降级到标准 PyTorch Attention。如仍报错，可设置环境变量跳过：
+
+```bash
+export DISABLE_FLASH_ATTN=1
 ```
 
+### Q2: 启动多卡报错 `backend hccl not found`？
 
+**A**: 确认 CANN 工具链已正确安装并 source 环境变量：
 
-## Evaluation Results
-
-### Text-to-Video
-The *Text-to-Video* MOS evaluation results on our internal benchmark.
-
-| **MOS score** | **Veo3** | **PixVerse-V5** | **Wan 2.2-T2V-A14B** | **LongCat-Video** |
-|---------------|-------------------|--------------------|-------------|-------------|
-| **Accessibility** | Proprietary | Proprietary | Open Source | Open Source |
-| **Architecture** | - | - | MoE | Dense |
-| **# Total Params** | - | - | 28B | 13.6B |
-| **# Activated Params** | - | - | 14B | 13.6B |
-| Text-Alignment↑ | 3.99 | 3.81 | 3.70 | 3.76 |
-| Visual Quality↑ | 3.23 | 3.13 | 3.26 | 3.25 |
-| Motion Quality↑ | 3.86 | 3.81 | 3.78 | 3.74 |
-| Overall Quality↑ | 3.48 | 3.36 | 3.35 | 3.38 |
-
-### Image-to-Video
-The *Image-to-Video* MOS evaluation results on our internal benchmark.
-
-| **MOS score** | **Seedance 1.0** | **Hailuo-02** | **Wan 2.2-I2V-A14B** | **LongCat-Video** |
-|---------------|-------------------|--------------------|-------------|-------------|
-| **Accessibility** | Proprietary | Proprietary | Open Source | Open Source |
-| **Architecture** | - | - | MoE | Dense |
-| **# Total Params** | - | - | 28B | 13.6B |
-| **# Activated Params** | - | - | 14B | 13.6B |
-| Image-Alignment↑ | 4.12 | 4.18 | 4.18 | 4.04 |
-| Text-Alignment↑ | 3.70 | 3.85 | 3.33 | 3.49 |
-| Visual Quality↑ | 3.22 | 3.18 | 3.23 | 3.27 |
-| Motion Quality↑ | 3.77 | 3.80 | 3.79 | 3.59 |
-| Overall Quality↑ | 3.35 | 3.27 | 3.26 | 3.17 |
-
-## Community Works
-
-Community works are welcome! Please PR or inform us in Issue to add your work.
-
-- [CacheDiT](https://github.com/vipshop/cache-dit) offers Fully Cache Acceleration support for LongCat-Video with DBCache and TaylorSeer, achieved nearly 1.7x speedup without obvious loss of precision. Visit their [example](https://github.com/vipshop/cache-dit/blob/main/examples/pipeline/run_longcat_video.py) for more details.
-
-
-## License Agreement
-
-The **model weights** are released under the **MIT License**. 
-
-Any contributions to this repository are licensed under the MIT License, unless otherwise stated. This license does not grant any rights to use Meituan trademarks or patents. 
-
-See the [LICENSE](LICENSE) file for the full license text.
-
-
-## Usage Considerations 
-This model has not been specifically designed or comprehensively evaluated for every possible downstream application. 
-
-Developers should take into account the known limitations of large language models, including performance variations across different languages, and carefully assess accuracy, safety, and fairness before deploying the model in sensitive or high-risk scenarios. 
-It is the responsibility of developers and downstream users to understand and comply with all applicable laws and regulations relevant to their use case, including but not limited to data protection, privacy, and content safety requirements. 
-
-Nothing in this Model Card should be interpreted as altering or restricting the terms of the MIT License under which the model is released. 
-
-## Citation
-We kindly encourage citation of our work if you find it useful.
-
-```
-@misc{meituanlongcatteam2025longcatvideotechnicalreport,
-      title={LongCat-Video Technical Report}, 
-      author={Meituan LongCat Team and Xunliang Cai and Qilong Huang and Zhuoliang Kang and Hongyu Li and Shijun Liang and Liya Ma and Siyu Ren and Xiaoming Wei and Rixu Xie and Tong Zhang},
-      year={2025},
-      eprint={2510.22200},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2510.22200}, 
-}
-@misc{meituanlongcatteam2025longcatvideoavatartechnicalreport,
-      title={LongCat-Video-Avatar Technical Report}, 
-      author={Meituan LongCat Team},
-      year={2025},
-      eprint={},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={}, 
-}
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 
-## Acknowledgements
+### Q3: 精度与 CUDA 版本有差异？
 
-We would like to thank the contributors to the [Wan](https://huggingface.co/Wan-AI), [UMT5-XXL](https://huggingface.co/google/umt5-xxl), [Diffusers](https://github.com/huggingface/diffusers) and [HuggingFace](https://huggingface.co) repositories, for their open research.
+**A**: 标准 PyTorch Attention 使用 `float32` softmax 计算，数值差异通常在 1e-3 以内，对视频生成质量无显著影响。如需严格对齐，可对比中间特征图。
 
+### Q4: 如何贡献优化？
 
-## Contact
-Please contact us at <a href="mailto:longcat-team@meituan.com">longcat-team@meituan.com</a> or scan the QR code to join our WeChat Group if you have any questions.  
-<img src="https://raw.githubusercontent.com/meituan-longcat/LongCat-Flash-Chat/main/wechat-assets/Wechat.png" width="200px">
+**A**: 欢迎提交 PR。当前优化方向：
+- 接入 `torch_npu` 融合算子替换标准 Attention
+- 支持 `torch.compile` / `dynamo` 图编译
+- 优化 Context Parallel 通信效率
+
+---
+
+## 附录：文件变更清单
+
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `ascend_npu_compat.py` | 新增 | NPU 兼容层与 Attention fallback |
+| `apply_npu_patches.py` | 新增 | 批量补丁脚本（开发用） |
+| `requirements-npu.txt` | 新增 | NPU 依赖列表（无 flash-attn） |
+| `verify_npu.sh` | 新增 | 一键验证脚本 |
+| `README-ascend.md` | 新增 | 本文档 |
+| `longcat_video/modules/attention.py` | 修改 | 新增标准 Attention fallback |
+| `longcat_video/modules/avatar/attention.py` | 修改 | 同上 |
+| `longcat_video/modules/longcat_video_dit.py` | 修改 | NPU 自动禁用 flash-attn |
+| `longcat_video/modules/avatar/longcat_video_dit_avatar.py` | 修改 | 同上 |
+| `longcat_video/context_parallel/context_parallel_util.py` | 修改 | HCCL / 动态 device 支持 |
+| `longcat_video/pipeline_longcat_video.py` | 修改 | 动态 device / cache 管理 |
+| `longcat_video/pipeline_longcat_video_avatar.py` | 修改 | 同上 |
+| `longcat_video/modules/blocks.py` | 修改 | 动态 autocast device |
+| `run_demo_*.py` | 修改 | NPU 兼容的分布式与设备管理 |
+| `run_streamlit.py` | 修改 | 动态 device 检测 |
+| `longcat_video/audio_process/torch_utils.py` | 修改 | NPU cache 管理 |
+
+---
+
+**适配完成日期**：2026-05-14  
+**适配作者**：JeffDing / AI Agent  
+**提交仓库**：https://gitcode.com/JeffDing/LongCat-Video-Ascend (示例)

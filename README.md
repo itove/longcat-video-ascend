@@ -1,3 +1,13 @@
+---
+license: apache-2.0
+language:
+  - en
+  - zh
+hardware: NPU
+tags:
+  - model-agent-tagged
+---
+
 # LongCat-Video Ascend NPU 适配文档
 
 本文档描述如何将美团开源的 **LongCat-Video** (13.6B 参数视频生成模型) 适配到 **华为昇腾 NPU (Ascend 910B 系列)** 上运行。

@@ -178,6 +178,47 @@ def standard_attention(q, k, v, scale=None, is_causal=False):
     return out
 
 
+def _chunked_attention(q, k, v, scale, chunk_size=2048):
+    """
+    Memory-bounded attention: softmax over query blocks so the full
+    [S_q, S_kv] score matrix is never materialized.
+    Input shapes: [B, H, S, D]
+    """
+    outputs = []
+    for start in range(0, q.shape[2], chunk_size):
+        qi = q[:, :, start:start + chunk_size]
+        scores = torch.matmul(qi, k.transpose(-2, -1)) * scale
+        attn = torch.softmax(scores, dim=-1, dtype=torch.float32).to(q.dtype)
+        outputs.append(torch.matmul(attn, v))
+        del scores, attn
+    return torch.cat(outputs, dim=2)
+
+
+def npu_attention(q, k, v, scale=None):
+    """
+    Attention with O(S) memory on Ascend NPU via the fused CANN kernel.
+    Input shapes: [B, H, S, D] (BNSD layout)
+    """
+    if scale is None:
+        scale = q.shape[-1] ** -0.5
+
+    if get_device_type() == "npu":
+        try:
+            import torch_npu
+            return torch_npu.npu_fusion_attention(
+                q.contiguous(),
+                k.contiguous(),
+                v.contiguous(),
+                head_num=q.shape[1],
+                input_layout="BNSD",
+                scale=scale,
+            )[0]
+        except (ImportError, AttributeError, RuntimeError):
+            return _chunked_attention(q, k, v, scale)
+
+    return standard_attention(q, k, v, scale)
+
+
 def standard_varlen_attention(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, scale=None):
     """
     Variable-length attention fallback using standard PyTorch attention

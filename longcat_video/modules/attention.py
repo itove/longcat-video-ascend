@@ -11,8 +11,19 @@ from ..block_sparse_attention.bsa_interface import flash_attn_bsa_3d
 from ..context_parallel.ulysses_wrapper import ulysses_wrapper
 
 
+try:
+    import os as _os
+    import sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+    from ascend_npu_compat import npu_attention as _npu_attention
+except ImportError:
+    _npu_attention = None
+
+
 def _standard_attention(q, k, v, scale):
-    """Pure PyTorch scaled dot-product attention fallback."""
+    """Attention fallback for Ascend NPU / CPU, inputs are [B, H, S, D]."""
+    if _npu_attention is not None:
+        return _npu_attention(q, k, v, scale)
     scores = torch.matmul(q, k.transpose(-2, -1)) * scale
     attn = torch.softmax(scores, dim=-1, dtype=torch.float32).to(q.dtype)
     out = torch.matmul(attn, v)
@@ -63,8 +74,9 @@ class Attention(nn.Module):
         B, H, SQ, D = q.shape
         _, _, SKV, _ = k.shape
 
-        if self.enable_bsa and shape[0] > 1: # bsa will not be used in image training / sampling
-            assert self.bsa_params is not None
+        # bsa will not be used in image training / sampling, nor when its triton
+        # kernel is unavailable (Ascend NPU), where bsa_params is cleared to None
+        if self.enable_bsa and shape[0] > 1 and self.bsa_params is not None:
             _, H, W = shape
             assert H % self.cp_split_hw[0] == 0, W % self.cp_split_hw[1] == 0
             H, W = H // self.cp_split_hw[0], W // self.cp_split_hw[1]
@@ -205,6 +217,7 @@ class MultiHeadCrossAttention(nn.Module):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        self.scale = self.head_dim**-0.5
 
         self.q_linear = nn.Linear(dim, dim)
         self.kv_linear = nn.Linear(dim, dim * 2)

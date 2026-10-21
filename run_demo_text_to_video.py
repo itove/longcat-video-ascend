@@ -121,6 +121,11 @@ def generate(args):
         write_video("output_t2v_distill.mp4", output_processed_tensor, fps=15, video_codec="libx264", options={"crf": f"{18}"})
 
     ### t2v refinement (720p)
+    # The 720p stage relies on block sparse attention; without its triton kernel
+    # the dense fallback is impractically slow, so it is opt-in.
+    if not args.enable_refine:
+        return
+
     refinement_lora_path = os.path.join(checkpoint_dir, 'lora/refinement_lora.safetensors')
     pipe.dit.load_lora(refinement_lora_path, 'refinement_lora')
     pipe.dit.enable_loras(['refinement_lora'])
@@ -166,6 +171,10 @@ def _parse_args():
     )
     parser.add_argument(
         '--enable_compile',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--enable_refine',
         action='store_true',
     )
 

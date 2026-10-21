@@ -287,6 +287,9 @@ class LongCatVideoTransformer3DModel(
         self.active_loras.clear()
 
     def enable_bsa(self,):
+        if any(block.attn.bsa_params is None for block in self.blocks):
+            print("[Ascend NPU] enable_bsa() ignored; bsa kernel unavailable, keeping standard attention.")
+            return
         for block in self.blocks:
             block.attn.enable_bsa = True
     

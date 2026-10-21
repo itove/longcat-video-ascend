@@ -37,6 +37,8 @@ def generate(args):
     checkpoint_dir = args.checkpoint_dir
     context_parallel_size = args.context_parallel_size
     enable_compile = args.enable_compile
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
 
     # prepare distributed environment
     rank = int(os.environ['RANK'])
@@ -91,7 +93,7 @@ def generate(args):
     if local_rank == 0:
         output_tensor = torch.from_numpy(np.array(output))
         output_tensor = (output_tensor * 255).clamp(0, 255).to(torch.uint8)
-        write_video("output_t2v.mp4", output_tensor, fps=15, video_codec="libx264", options={"crf": f"{18}"})
+        write_video(os.path.join(output_dir, "output_t2v.mp4"), output_tensor, fps=15, video_codec="libx264", options={"crf": f"{18}"})
     del output
     torch_gc()
 
@@ -118,7 +120,7 @@ def generate(args):
     if local_rank == 0:
         output_processed_tensor = torch.from_numpy(np.array(output_distill))
         output_processed_tensor = (output_processed_tensor * 255).clamp(0, 255).to(torch.uint8)
-        write_video("output_t2v_distill.mp4", output_processed_tensor, fps=15, video_codec="libx264", options={"crf": f"{18}"})
+        write_video(os.path.join(output_dir, "output_t2v_distill.mp4"), output_processed_tensor, fps=15, video_codec="libx264", options={"crf": f"{18}"})
 
     ### t2v refinement (720p)
     # The 720p stage relies on block sparse attention; without its triton kernel
@@ -154,7 +156,7 @@ def generate(args):
         output_tensor = torch.from_numpy(output_refine)
         output_tensor = (output_tensor * 255).clamp(0, 255).to(torch.uint8)
         fps = 15 if spatial_refine_only else 30
-        write_video("output_t2v_refine.mp4", output_tensor, fps=fps, video_codec="libx264", options={"crf": f"{10}"})
+        write_video(os.path.join(output_dir, "output_t2v_refine.mp4"), output_tensor, fps=fps, video_codec="libx264", options={"crf": f"{10}"})
 
 
 def _parse_args():
@@ -176,6 +178,11 @@ def _parse_args():
     parser.add_argument(
         '--enable_refine',
         action='store_true',
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=".",
     )
 
     args = parser.parse_args()

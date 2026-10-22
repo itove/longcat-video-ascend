@@ -124,9 +124,9 @@ def generate(args):
         write_video(os.path.join(output_dir, f"output_t2v_distill_{run_stamp}.mp4"), output_processed_tensor, fps=15, video_codec="libx264", options={"crf": f"{18}"})
 
     ### t2v refinement (720p)
-    # The 720p stage relies on block sparse attention; without its triton kernel
-    # the dense fallback is impractically slow, so it is opt-in.
-    if not args.enable_refine:
+    # Runs with dense attention instead of the unavailable bsa kernel, which costs
+    # roughly 70s per step on 4x 910B3; t_thresh keeps it to 5 steps.
+    if args.skip_refine:
         return
 
     refinement_lora_path = os.path.join(checkpoint_dir, 'lora/refinement_lora.safetensors')
@@ -177,7 +177,7 @@ def _parse_args():
         action='store_true',
     )
     parser.add_argument(
-        '--enable_refine',
+        '--skip_refine',
         action='store_true',
     )
     parser.add_argument(
